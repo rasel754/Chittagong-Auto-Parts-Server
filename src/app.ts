@@ -22,17 +22,28 @@ export function createApp(): Express {
   );
 
   // 2. CORS configuration
-  const allowedOrigins =
-    env.CLIENT_ORIGIN === '*'
-      ? '*'
-      : env.CLIENT_ORIGIN.split(',').map((o) => o.trim());
-
   app.use(
     cors({
-      origin: allowedOrigins,
+      origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+        if (!origin) return callback(null, true);
+        if (env.CLIENT_ORIGIN === '*') return callback(null, true);
+        
+        const list = env.CLIENT_ORIGIN.split(',').map((o) => o.trim());
+        if (
+          list.includes(origin) ||
+          list.includes('*') ||
+          origin.includes('vercel.app') ||
+          origin.includes('localhost') ||
+          origin.includes('127.0.0.1')
+        ) {
+          return callback(null, true);
+        }
+        return callback(null, true);
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     })
   );
 
@@ -52,7 +63,21 @@ export function createApp(): Express {
   // 5. Rate Limiter
   app.use(generalRateLimiter);
 
-  // 6. Health Check
+  // 6. Root & Health Check Endpoints
+  app.get('/', (_req, res) => {
+    res.status(200).json({
+      status: 'ok',
+      service: 'Chittagong Auto Parts Inventory Server',
+      timestamp: new Date().toISOString(),
+      timezone: env.APP_TIMEZONE,
+      endpoints: {
+        health: '/health',
+        docs: '/api/docs',
+        apiV1: '/api/v1'
+      }
+    });
+  });
+
   app.get('/health', (_req, res) => {
     res.status(200).json({
       status: 'ok',
