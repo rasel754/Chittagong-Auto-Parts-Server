@@ -15,8 +15,9 @@ export function createApp(): Express {
   const app = express();
 
   // 1. Security Headers
+  const helmetFn = (typeof helmet === 'function' ? helmet : (helmet as any).default || helmet) as (options?: any) => express.RequestHandler;
   app.use(
-    helmet({
+    helmetFn({
       contentSecurityPolicy: false // Allows Swagger UI inline assets
     })
   );
