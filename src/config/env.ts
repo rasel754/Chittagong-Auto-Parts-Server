@@ -5,7 +5,9 @@ import { z } from 'zod';
 dotenv.config();
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default(process.env.VERCEL ? 'production' : 'development'),
   PORT: z.coerce.number().default(5000),
   MONGODB_URI: z.string().default('mongodb+srv://kamal-vai:Hh5GaeJRmvdIbTRM@cluster0.2zt49zv.mongodb.net/kamal-vai-store?appName=Cluster0'),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters long').default('f9bc167a389960c86b81d77f13e6ce9bc8bb7468384dd539c7e8fadc63a80a52'),

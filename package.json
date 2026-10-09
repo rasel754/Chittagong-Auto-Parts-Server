@@ -1,6 +1,7 @@
 {
   "name": "chittagong-auto-parts-server",
   "version": "1.0.0",
+  "type": "module",
   "description": "Production REST API backend for Chittagong Auto Parts Inventory & Supply Tracker",
   "main": "dist/server.js",
   "scripts": {
