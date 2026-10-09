@@ -1,11 +1,11 @@
 import rateLimit from 'express-rate-limit';
-import type { Request, Response } from 'express';
+import type { Request, Response, RequestHandler } from 'express';
 import { env } from '../config/env.js';
 import { ResponseUtil } from '../common/response.js';
 
-const createRateLimiter = (typeof rateLimit === 'function' ? rateLimit : (rateLimit as any).default || rateLimit) as typeof rateLimit;
+const createRateLimiter: any = typeof rateLimit === 'function' ? rateLimit : (rateLimit as any).default || rateLimit;
 
-export const generalRateLimiter = createRateLimiter({
+export const generalRateLimiter: RequestHandler = createRateLimiter({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
   limit: env.RATE_LIMIT_MAX,
   standardHeaders: 'draft-7',
@@ -20,7 +20,7 @@ export const generalRateLimiter = createRateLimiter({
   }
 });
 
-export const authRateLimiter = createRateLimiter({
+export const authRateLimiter: RequestHandler = createRateLimiter({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
   limit: env.AUTH_RATE_LIMIT_MAX,
   standardHeaders: 'draft-7',
