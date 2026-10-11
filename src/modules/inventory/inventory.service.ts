@@ -3,6 +3,7 @@ import { InventoryModel } from './inventory.model.js';
 import { ProductModel } from '../products/product.model.js';
 import { NotFoundError } from '../../common/errors/not-found.error.js';
 import { PaginationUtil, PaginatedResult } from '../../common/pagination.js';
+import { RegexUtil } from '../../common/utils/regex.util.js';
 import { IInventoryResponse } from './inventory.interface.js';
 
 export interface ListInventoryQuery {
@@ -40,7 +41,7 @@ export class InventoryService {
 
     // If search term provided, find matching product IDs first
     if (query.search) {
-      const searchRegex = new RegExp(query.search.trim(), 'i');
+      const searchRegex = RegexUtil.createCaseInsensitiveSearchRegex(query.search);
       const matchingProducts = await ProductModel.find(
         {
           $or: [{ name: searchRegex }, { sku: searchRegex }, { description: searchRegex }]

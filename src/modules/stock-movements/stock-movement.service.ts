@@ -1,6 +1,8 @@
 import { Types } from 'mongoose';
 import { StockMovementModel } from './stock-movement.model.js';
+import { ProductModel } from '../products/product.model.js';
 import { PaginationUtil, PaginatedResult } from '../../common/pagination.js';
+import { RegexUtil } from '../../common/utils/regex.util.js';
 import { IStockMovementResponse } from './stock-movement.interface.js';
 import { MovementType, ReferenceType } from '../../common/constants/movement-types.constant.js';
 
@@ -8,6 +10,7 @@ export interface ListStockMovementsQuery {
   page?: string;
   limit?: string;
   productId?: string;
+  search?: string;
   movementType?: MovementType;
   referenceType?: ReferenceType;
   startDate?: string;
@@ -37,6 +40,22 @@ export class StockMovementService {
 
     if (query.movementType) {
       filter.movementType = query.movementType;
+    }
+
+    if (query.search) {
+      const searchRegex = RegexUtil.createCaseInsensitiveSearchRegex(query.search);
+      const matchingProducts = await ProductModel.find(
+        {
+          $or: [{ name: searchRegex }, { sku: searchRegex }, { description: searchRegex }]
+        },
+        { _id: 1 }
+      ).lean();
+
+      const matchingProductIds = matchingProducts.map((p) => p._id);
+      filter.$or = [
+        { productId: { $in: matchingProductIds } },
+        { notes: searchRegex }
+      ];
     }
 
     if (query.referenceType) {

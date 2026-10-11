@@ -9,6 +9,7 @@ import { NotFoundError } from '../../common/errors/not-found.error.js';
 import { BadRequestError } from '../../common/errors/bad-request.error.js';
 import { MovementType, ReferenceType } from '../../common/constants/movement-types.constant.js';
 import { PaginationUtil, PaginatedResult } from '../../common/pagination.js';
+import { RegexUtil } from '../../common/utils/regex.util.js';
 import { IStockEntryResponse } from './stock-entry.interface.js';
 import { CreateStockEntryInput, UpdateStockEntryInput } from './stock-entry.validation.js';
 
@@ -17,6 +18,7 @@ export interface ListStockEntriesQuery {
   limit?: string;
   productId?: string;
   supplierName?: string;
+  search?: string;
   startDate?: string;
   endDate?: string;
   sortBy?: string;
@@ -186,7 +188,24 @@ export class StockEntryService {
     }
 
     if (query.supplierName) {
-      filter.supplierName = new RegExp(query.supplierName.trim(), 'i');
+      filter.supplierName = RegexUtil.createCaseInsensitiveSearchRegex(query.supplierName);
+    }
+
+    if (query.search) {
+      const searchRegex = RegexUtil.createCaseInsensitiveSearchRegex(query.search);
+      const matchingProducts = await ProductModel.find(
+        {
+          $or: [{ name: searchRegex }, { sku: searchRegex }, { description: searchRegex }]
+        },
+        { _id: 1 }
+      ).lean();
+
+      const matchingProductIds = matchingProducts.map((p) => p._id);
+      filter.$or = [
+        { productId: { $in: matchingProductIds } },
+        { supplierName: searchRegex },
+        { notes: searchRegex }
+      ];
     }
 
     if (query.startDate || query.endDate) {

@@ -2,6 +2,7 @@ import { ProductModel } from './product.model.js';
 import { ConflictError } from '../../common/errors/conflict.error.js';
 import { NotFoundError } from '../../common/errors/not-found.error.js';
 import { PaginationUtil, PaginatedResult } from '../../common/pagination.js';
+import { RegexUtil } from '../../common/utils/regex.util.js';
 import { IProductResponse } from './product.interface.js';
 
 export interface CreateProductInput {
@@ -68,7 +69,7 @@ export class ProductService {
     }
 
     if (query.search) {
-      const searchRegex = new RegExp(query.search.trim(), 'i');
+      const searchRegex = RegexUtil.createCaseInsensitiveSearchRegex(query.search);
       filter.$or = [
         { name: searchRegex },
         { sku: searchRegex },

@@ -5,6 +5,7 @@ import { ConflictError } from '../../common/errors/conflict.error.js';
 import { NotFoundError } from '../../common/errors/not-found.error.js';
 import { ForbiddenError } from '../../common/errors/forbidden.error.js';
 import { PaginationUtil, PaginatedResult } from '../../common/pagination.js';
+import { RegexUtil } from '../../common/utils/regex.util.js';
 import { IShopResponse } from './shop.interface.js';
 import { UserRole } from '../../common/constants/roles.constant.js';
 import { CommonStatus } from '../../common/constants/status.constant.js';
@@ -66,7 +67,7 @@ export class ShopService {
     }
 
     if (query.search) {
-      const searchRegex = new RegExp(query.search.trim(), 'i');
+      const searchRegex = RegexUtil.createCaseInsensitiveSearchRegex(query.search);
       filter.$or = [{ name: searchRegex }, { code: searchRegex }];
     }
 

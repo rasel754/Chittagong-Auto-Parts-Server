@@ -35,6 +35,7 @@ export const listStockEntriesSchema = z.object({
     limit: z.string().optional(),
     productId: z.string().optional(),
     supplierName: z.string().optional(),
+    search: z.string().optional(),
     startDate: z.string().optional(),
     endDate: z.string().optional(),
     sortBy: z.enum(['entryDate', 'createdAt', 'totalPurchaseValue', 'quantityReceived']).optional(),

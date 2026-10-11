@@ -9,6 +9,7 @@ export const listStockMovementsSchema = z.object({
     page: z.string().optional(),
     limit: z.string().optional(),
     productId: z.string().optional(),
+    search: z.string().optional(),
     movementType: z.enum([
       MovementType.STOCK_IN,
       MovementType.SALE,

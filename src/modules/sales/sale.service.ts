@@ -9,6 +9,7 @@ import { NotFoundError } from '../../common/errors/not-found.error.js';
 import { BadRequestError } from '../../common/errors/bad-request.error.js';
 import { MovementType, ReferenceType } from '../../common/constants/movement-types.constant.js';
 import { PaginationUtil, PaginatedResult } from '../../common/pagination.js';
+import { RegexUtil } from '../../common/utils/regex.util.js';
 import { ISaleResponse } from './sale.interface.js';
 import { CreateSaleInput, UpdateSaleInput } from './sale.validation.js';
 
@@ -16,6 +17,7 @@ export interface ListSalesQuery {
   page?: string;
   limit?: string;
   productId?: string;
+  search?: string;
   startDate?: string;
   endDate?: string;
   sortBy?: string;
@@ -174,6 +176,22 @@ export class SaleService {
 
     if (query.productId && Types.ObjectId.isValid(query.productId)) {
       filter.productId = new Types.ObjectId(query.productId);
+    }
+
+    if (query.search) {
+      const searchRegex = RegexUtil.createCaseInsensitiveSearchRegex(query.search);
+      const matchingProducts = await ProductModel.find(
+        {
+          $or: [{ name: searchRegex }, { sku: searchRegex }, { description: searchRegex }]
+        },
+        { _id: 1 }
+      ).lean();
+
+      const matchingProductIds = matchingProducts.map((p) => p._id);
+      filter.$or = [
+        { productId: { $in: matchingProductIds } },
+        { notes: searchRegex }
+      ];
     }
 
     if (query.startDate || query.endDate) {
