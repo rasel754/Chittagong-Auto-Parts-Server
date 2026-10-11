@@ -10,6 +10,12 @@ import { CommonStatus } from '../common/constants/status.constant.js';
 
 export async function bootstrapSystem(): Promise<void> {
   try {
+    // Quick check to avoid cold-start latency if system is already bootstrapped
+    const adminExists = await UserModel.exists({ role: UserRole.ADMIN });
+    if (adminExists) {
+      return;
+    }
+
     // 1. Bootstrap Initial Shops if not present
     const initialShops = [
       {

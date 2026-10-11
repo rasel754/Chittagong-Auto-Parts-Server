@@ -11,14 +11,26 @@ if (!cached) {
 let memoryServer: any = null;
 
 export async function connectDatabase(): Promise<typeof mongoose> {
-  if (cached.conn && mongoose.connection.readyState === 1) {
-    return cached.conn;
+  // If already connected, reuse connection
+  if (mongoose.connection.readyState === 1) {
+    return mongoose;
+  }
+
+  // If connection is not actively connecting, clear stale cached promise
+  if (mongoose.connection.readyState !== 2) {
+    cached.promise = null;
+    cached.conn = null;
   }
 
   if (!cached.promise) {
-    const opts = {
-      autoIndex: true,
-      serverSelectionTimeoutMS: 5000,
+    const isServerless = !!process.env.VERCEL || env.NODE_ENV === 'production';
+    const opts: mongoose.ConnectOptions = {
+      autoIndex: !isServerless,
+      serverSelectionTimeoutMS: 8000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+      minPoolSize: 0,
+      bufferCommands: false,
     };
 
     cached.promise = mongoose.connect(env.MONGODB_URI, opts).then((m) => {
@@ -26,6 +38,7 @@ export async function connectDatabase(): Promise<typeof mongoose> {
       return m;
     }).catch(async (error: any) => {
       cached.promise = null;
+      cached.conn = null;
       logger.warn({ error: error.message }, 'Standard MongoDB connection failed. Checking fallback...');
       
       if (env.NODE_ENV !== 'production' && !process.env.VERCEL) {
@@ -38,7 +51,7 @@ export async function connectDatabase(): Promise<typeof mongoose> {
             }
           });
           const uri = memoryServer.getUri();
-          const conn = await mongoose.connect(uri, { autoIndex: true });
+          const conn = await mongoose.connect(uri, { autoIndex: true, bufferCommands: false });
           logger.info(`Embedded MongoDB Memory Server connected successfully at: ${uri}`);
           return conn;
         } catch (memError) {
@@ -56,6 +69,7 @@ export async function connectDatabase(): Promise<typeof mongoose> {
     cached.conn = await cached.promise;
   } catch (e) {
     cached.promise = null;
+    cached.conn = null;
     throw e;
   }
 
