@@ -13,6 +13,7 @@ export interface ListInventoryQuery {
   lowStockOnly?: 'true' | 'false';
   sortBy?: string;
   sortOrder?: string;
+  all?: 'true' | 'false';
 }
 
 export interface UpdateInventoryInput {
@@ -25,10 +26,12 @@ export class InventoryService {
     shopId: string,
     query: ListInventoryQuery
   ): Promise<PaginatedResult<IInventoryResponse>> {
+    const isFetchAll = query.all === 'true' || query.limit === 'all';
     const pagination = PaginationUtil.parse(
       query,
       ['quantityOnHand', 'createdAt', 'updatedAt', 'averageUnitCost', 'defaultSellingRatePerPiece'],
-      'quantityOnHand'
+      'quantityOnHand',
+      5000
     );
 
     const filter: Record<string, unknown> = {
@@ -53,17 +56,32 @@ export class InventoryService {
       filter.productId = { $in: matchingProductIds };
     }
 
+    const inventoryQuery = InventoryModel.find(filter)
+      .populate('productId', 'name normalizedName sku description')
+      .populate('shopId', 'name code status')
+      .sort({ [pagination.sortBy]: pagination.sortOrder });
+
+    if (!isFetchAll) {
+      inventoryQuery.skip(pagination.skip).limit(pagination.limit);
+    }
+
     const [docs, total] = await Promise.all([
-      InventoryModel.find(filter)
-        .populate('productId', 'name normalizedName sku description')
-        .populate('shopId', 'name code status')
-        .sort({ [pagination.sortBy]: pagination.sortOrder })
-        .skip(pagination.skip)
-        .limit(pagination.limit),
+      inventoryQuery,
       InventoryModel.countDocuments(filter)
     ]);
 
     const formattedDocs = docs.map((doc) => doc.toJSON() as unknown as IInventoryResponse);
+    if (isFetchAll) {
+      return {
+        docs: formattedDocs,
+        total,
+        page: 1,
+        limit: total || 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false
+      };
+    }
     return PaginationUtil.format(formattedDocs, total, pagination);
   }
 

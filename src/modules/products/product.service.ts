@@ -22,6 +22,7 @@ export interface ListProductsQuery {
   limit?: string;
   search?: string;
   sku?: string;
+  all?: 'true' | 'false';
 }
 
 export class ProductService {
@@ -61,7 +62,8 @@ export class ProductService {
   }
 
   public static async list(query: ListProductsQuery): Promise<PaginatedResult<IProductResponse>> {
-    const pagination = PaginationUtil.parse(query, ['createdAt', 'name', 'normalizedName', 'sku'], 'name');
+    const isFetchAll = query.all === 'true' || query.limit === 'all';
+    const pagination = PaginationUtil.parse(query, ['createdAt', 'name', 'normalizedName', 'sku'], 'name', 5000);
     const filter: Record<string, unknown> = {};
 
     if (query.sku) {
@@ -77,15 +79,30 @@ export class ProductService {
       ];
     }
 
+    const productQuery = ProductModel.find(filter)
+      .sort({ [pagination.sortBy]: pagination.sortOrder });
+
+    if (!isFetchAll) {
+      productQuery.skip(pagination.skip).limit(pagination.limit);
+    }
+
     const [docs, total] = await Promise.all([
-      ProductModel.find(filter)
-        .sort({ [pagination.sortBy]: pagination.sortOrder })
-        .skip(pagination.skip)
-        .limit(pagination.limit),
+      productQuery,
       ProductModel.countDocuments(filter)
     ]);
 
     const formattedDocs = docs.map((doc) => doc.toJSON() as IProductResponse);
+    if (isFetchAll) {
+      return {
+        docs: formattedDocs,
+        total,
+        page: 1,
+        limit: total || 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false
+      };
+    }
     return PaginationUtil.format(formattedDocs, total, pagination);
   }
 

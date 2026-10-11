@@ -22,13 +22,13 @@ export class PaginationUtil {
     limit?: string | number;
     sortBy?: string;
     sortOrder?: string;
-  }, allowedSortFields: string[] = ['createdAt'], defaultSort: string = 'createdAt'): PaginationParams {
+  }, allowedSortFields: string[] = ['createdAt'], defaultSort: string = 'createdAt', maxLimit: number = 1000): PaginationParams {
     const rawPage = Number(query.page);
     const page = !isNaN(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
 
     const rawLimit = Number(query.limit);
-    // Limit max page size to 100
-    const limit = !isNaN(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 20;
+    // Limit max page size to maxLimit
+    const limit = !isNaN(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), maxLimit) : 20;
 
     const skip = (page - 1) * limit;
 
