@@ -156,4 +156,75 @@ describe('Product Name Search Tests across Stock, Sales, Movements, and Products
     expect(prodRes.status).toBe(200);
     expect(prodRes.body.data.length).toBe(1);
   });
+
+  it('should search successfully when product name or supplier name is mixed Bangla and English', async () => {
+    // 1. Create a product with mixed Bangla and English name
+    const mixedProduct = await ProductModel.create({
+      name: 'Toyota করোলা Ceramic Brake Pads (সামনের ব্রেক প্যাড)',
+      normalizedName: 'toyota করোলা ceramic brake pads (সামনের ব্রেক প্যাড)',
+      sku: 'BRK-TOY-BN'
+    });
+
+    // 2. Create a stock entry with mixed Bangla & English supplier name
+    await request(app)
+      .post(`/api/v1/shops/${ctgShopId}/stock-entries`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        productId: mixedProduct._id.toString(),
+        supplierName: 'Tokyo Spares Ltd (টোকিও অটো স্পেয়ার্স)',
+        quantityReceived: 40,
+        buyingRatePerPiece: 1200,
+        sellingRatePerPiece: 1800
+      });
+
+    // 3. Create a sale for this mixed product
+    await request(app)
+      .post(`/api/v1/shops/${ctgShopId}/sales`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        productId: mixedProduct._id.toString(),
+        quantitySold: 3,
+        sellingRatePerPiece: 1800,
+        notes: 'Invoice 202 | বিক্রয়: রফিক'
+      });
+
+    // Test A: Search stock entries by mixed query (English 'Toyota' + Bangla 'ব্রেক')
+    const resA = await request(app)
+      .get(`/api/v1/shops/${ctgShopId}/stock-entries?search=${encodeURIComponent('Toyota ব্রেক')}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resA.status).toBe(200);
+    expect(resA.body.data.length).toBe(1);
+    expect(resA.body.data[0].productId.name).toContain('Toyota করোলা');
+
+    // Test B: Reverse order of mixed query (Bangla 'সামনের' + English 'Brake')
+    const resB = await request(app)
+      .get(`/api/v1/shops/${ctgShopId}/stock-entries?search=${encodeURIComponent('সামনের Brake')}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resB.status).toBe(200);
+    expect(resB.body.data.length).toBe(1);
+
+    // Test C: Search supplier name with mixed query (English 'Tokyo' + Bangla 'অটো')
+    const resC = await request(app)
+      .get(`/api/v1/shops/${ctgShopId}/stock-entries?search=${encodeURIComponent('Tokyo অটো')}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resC.status).toBe(200);
+    expect(resC.body.data.length).toBe(1);
+    expect(resC.body.data[0].supplierName).toContain('টোকিও অটো');
+
+    // Test D: Search sales by mixed product query (Bangla 'করোলা' + English 'Ceramic')
+    const resD = await request(app)
+      .get(`/api/v1/shops/${ctgShopId}/sales?search=${encodeURIComponent('করোলা Ceramic')}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resD.status).toBe(200);
+    expect(resD.body.data.length).toBe(1);
+
+    // Test E: Search with invisible Unicode zero-width character (common in Bangla keyboards)
+    const zwjSearch = 'Toyota\u200D ব্রেক'; // With zero-width joiner
+    const resE = await request(app)
+      .get(`/api/v1/products?search=${encodeURIComponent(zwjSearch)}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resE.status).toBe(200);
+    expect(resE.body.data.length).toBe(1);
+  });
 });
+
