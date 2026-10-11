@@ -7,6 +7,7 @@ import { authRateLimiter } from '../../middleware/rate-limiter.middleware.js';
 
 const router = Router();
 
+router.get('/ping', (_req, res) => res.json({ success: true, message: 'pong' }));
 router.post('/login', authRateLimiter, validate(loginSchema), AuthController.login);
 router.get('/me', authenticate, AuthController.getMe);
 router.post('/logout', authenticate, AuthController.logout);

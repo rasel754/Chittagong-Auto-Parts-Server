@@ -122,13 +122,6 @@ export class DashboardService {
       }
     ];
 
-    const invResults = await InventoryModel.aggregate(inventoryPipeline);
-    const invData = invResults[0] || {
-      distinctProductIds: [],
-      totalUnits: 0,
-      totalStockValue: 0
-    };
-
     // 2. Sales Aggregations within period
     const salesMatch: Record<string, unknown> = {
       shopId: { $in: shopObjectIds }
@@ -152,96 +145,112 @@ export class DashboardService {
       }
     ];
 
-    const salesResults = await SaleModel.aggregate(salesPipeline);
+    // 3. Run all top-level queries, aggregations, and recent records concurrently in parallel
+    const [
+      invResults,
+      salesResults,
+      activeShops,
+      shopInvStats,
+      shopSalesStats,
+      recentSales,
+      recentStockEntries,
+      lowStockAlerts
+    ] = await Promise.all([
+      InventoryModel.aggregate(inventoryPipeline),
+      SaleModel.aggregate(salesPipeline),
+      ShopModel.find({ _id: { $in: shopObjectIds } }).lean(),
+      InventoryModel.aggregate([
+        { $match: { shopId: { $in: shopObjectIds } } },
+        {
+          $group: {
+            _id: '$shopId',
+            productCount: { $sum: 1 },
+            totalUnits: { $sum: '$quantityOnHand' },
+            stockValue: {
+              $sum: { $multiply: ['$quantityOnHand', '$averageUnitCost'] }
+            }
+          }
+        }
+      ]),
+      SaleModel.aggregate([
+        { $match: salesMatch },
+        {
+          $group: {
+            _id: '$shopId',
+            totalRevenue: { $sum: '$totalSellingPrice' },
+            totalGrossProfit: { $sum: '$grossProfit' },
+            totalCount: { $sum: 1 }
+          }
+        }
+      ]),
+      SaleModel.find({ shopId: { $in: shopObjectIds } })
+        .populate('productId', 'name sku')
+        .populate('shopId', 'name code')
+        .populate('createdBy', 'name')
+        .sort({ saleDate: -1 })
+        .limit(10)
+        .lean(),
+      StockEntryModel.find({ shopId: { $in: shopObjectIds } })
+        .populate('productId', 'name sku')
+        .populate('shopId', 'name code')
+        .populate('createdBy', 'name')
+        .sort({ entryDate: -1 })
+        .limit(10)
+        .lean(),
+      InventoryModel.find({
+        shopId: { $in: shopObjectIds },
+        $expr: { $lte: ['$quantityOnHand', '$lowStockThreshold'] }
+      })
+        .populate('productId', 'name sku')
+        .populate('shopId', 'name code')
+        .sort({ quantityOnHand: 1 })
+        .limit(10)
+        .lean()
+    ]);
+
+    const invData = invResults[0] || {
+      distinctProductIds: [],
+      totalUnits: 0,
+      totalStockValue: 0
+    };
+
     const salesData = salesResults[0] || {
       totalRevenue: 0,
       totalGrossProfit: 0,
       totalSalesCount: 0
     };
 
-    // 3. Per-Shop Summary Breakdown
-    const activeShops = await ShopModel.find({ _id: { $in: shopObjectIds } }).lean();
+    const invMap = new Map<string, { productCount: number; totalUnits: number; stockValue: number }>();
+    for (const item of shopInvStats) {
+      if (item._id) {
+        invMap.set(item._id.toString(), item);
+      }
+    }
 
-    const shopBreakdown: ShopSummaryItem[] = await Promise.all(
-      activeShops.map(async (shop) => {
-        const sObjId = shop._id as Types.ObjectId;
+    const salesMap = new Map<string, { totalRevenue: number; totalGrossProfit: number; totalCount: number }>();
+    for (const item of shopSalesStats) {
+      if (item._id) {
+        salesMap.set(item._id.toString(), item);
+      }
+    }
 
-        const [sInv] = await InventoryModel.aggregate([
-          { $match: { shopId: sObjId } },
-          {
-            $group: {
-              _id: null,
-              productCount: { $sum: 1 },
-              totalUnits: { $sum: '$quantityOnHand' },
-              stockValue: {
-                $sum: { $multiply: ['$quantityOnHand', '$averageUnitCost'] }
-              }
-            }
-          }
-        ]);
+    const shopBreakdown: ShopSummaryItem[] = activeShops.map((shop) => {
+      const sId = (shop._id as Types.ObjectId).toString();
+      const sInv = invMap.get(sId);
+      const sSales = salesMap.get(sId);
 
-        const sSalesMatch: Record<string, unknown> = { shopId: sObjId };
-        if (dateRange) {
-          sSalesMatch.saleDate = {
-            $gte: dateRange.startDate,
-            $lte: dateRange.endDate
-          };
-        }
-
-        const [sSales] = await SaleModel.aggregate([
-          { $match: sSalesMatch },
-          {
-            $group: {
-              _id: null,
-              totalRevenue: { $sum: '$totalSellingPrice' },
-              totalGrossProfit: { $sum: '$grossProfit' },
-              totalCount: { $sum: 1 }
-            }
-          }
-        ]);
-
-        return {
-          shopId: sObjId.toString(),
-          shopName: shop.name,
-          shopCode: shop.code,
-          totalProducts: sInv ? sInv.productCount : 0,
-          totalStockUnits: sInv ? sInv.totalUnits : 0,
-          stockValue: sInv ? MoneyUtil.round(sInv.stockValue) : 0,
-          periodSalesRevenue: sSales ? MoneyUtil.round(sSales.totalRevenue) : 0,
-          periodGrossProfit: sSales ? MoneyUtil.round(sSales.totalGrossProfit) : 0,
-          periodTotalSalesCount: sSales ? sSales.totalCount : 0
-        };
-      })
-    );
-
-    // 4. Recent Sales
-    const recentSales = await SaleModel.find({ shopId: { $in: shopObjectIds } })
-      .populate('productId', 'name sku')
-      .populate('shopId', 'name code')
-      .populate('createdBy', 'name')
-      .sort({ saleDate: -1 })
-      .limit(10)
-      .lean();
-
-    // 5. Recent Stock Entries
-    const recentStockEntries = await StockEntryModel.find({ shopId: { $in: shopObjectIds } })
-      .populate('productId', 'name sku')
-      .populate('shopId', 'name code')
-      .populate('createdBy', 'name')
-      .sort({ entryDate: -1 })
-      .limit(10)
-      .lean();
-
-    // 6. Low stock items
-    const lowStockAlerts = await InventoryModel.find({
-      shopId: { $in: shopObjectIds },
-      $expr: { $lte: ['$quantityOnHand', '$lowStockThreshold'] }
-    })
-      .populate('productId', 'name sku')
-      .populate('shopId', 'name code')
-      .sort({ quantityOnHand: 1 })
-      .limit(10)
-      .lean();
+      return {
+        shopId: sId,
+        shopName: shop.name,
+        shopCode: shop.code,
+        totalProducts: sInv ? sInv.productCount : 0,
+        totalStockUnits: sInv ? sInv.totalUnits : 0,
+        stockValue: sInv ? MoneyUtil.round(sInv.stockValue) : 0,
+        periodSalesRevenue: sSales ? MoneyUtil.round(sSales.totalRevenue) : 0,
+        periodGrossProfit: sSales ? MoneyUtil.round(sSales.totalGrossProfit) : 0,
+        periodTotalSalesCount: sSales ? sSales.totalCount : 0
+      };
+    });
 
     return {
       reportingPeriod: {
@@ -276,22 +285,6 @@ export class DashboardService {
 
     const dateRange = DateUtil.parseReportingPeriod(query.period || '30d', query.startDate, query.endDate);
 
-    // 1. Inventory metrics for this shop
-    const [invData] = await InventoryModel.aggregate([
-      { $match: { shopId: shopObjectId } },
-      {
-        $group: {
-          _id: null,
-          productCount: { $sum: 1 },
-          totalUnits: { $sum: '$quantityOnHand' },
-          stockValue: {
-            $sum: { $multiply: ['$quantityOnHand', '$averageUnitCost'] }
-          }
-        }
-      }
-    ]);
-
-    // 2. Sales metrics for this shop
     const salesMatch: Record<string, unknown> = { shopId: shopObjectId };
     if (dateRange) {
       salesMatch.saleDate = {
@@ -300,43 +293,59 @@ export class DashboardService {
       };
     }
 
-    const [salesData] = await SaleModel.aggregate([
-      { $match: salesMatch },
-      {
-        $group: {
-          _id: null,
-          totalRevenue: { $sum: '$totalSellingPrice' },
-          totalGrossProfit: { $sum: '$grossProfit' },
-          salesCount: { $sum: 1 }
+    // Run all shop-specific metrics and lists in parallel
+    const [
+      [invData],
+      [salesData],
+      recentSales,
+      recentStockEntries,
+      lowStockProducts
+    ] = await Promise.all([
+      InventoryModel.aggregate([
+        { $match: { shopId: shopObjectId } },
+        {
+          $group: {
+            _id: null,
+            productCount: { $sum: 1 },
+            totalUnits: { $sum: '$quantityOnHand' },
+            stockValue: {
+              $sum: { $multiply: ['$quantityOnHand', '$averageUnitCost'] }
+            }
+          }
         }
-      }
+      ]),
+      SaleModel.aggregate([
+        { $match: salesMatch },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$totalSellingPrice' },
+            totalGrossProfit: { $sum: '$grossProfit' },
+            salesCount: { $sum: 1 }
+          }
+        }
+      ]),
+      SaleModel.find({ shopId: shopObjectId })
+        .populate('productId', 'name sku')
+        .populate('createdBy', 'name')
+        .sort({ saleDate: -1 })
+        .limit(10)
+        .lean(),
+      StockEntryModel.find({ shopId: shopObjectId })
+        .populate('productId', 'name sku')
+        .populate('createdBy', 'name')
+        .sort({ entryDate: -1 })
+        .limit(10)
+        .lean(),
+      InventoryModel.find({
+        shopId: shopObjectId,
+        $expr: { $lte: ['$quantityOnHand', '$lowStockThreshold'] }
+      })
+        .populate('productId', 'name sku')
+        .sort({ quantityOnHand: 1 })
+        .limit(10)
+        .lean()
     ]);
-
-    // 3. Recent Sales
-    const recentSales = await SaleModel.find({ shopId: shopObjectId })
-      .populate('productId', 'name sku')
-      .populate('createdBy', 'name')
-      .sort({ saleDate: -1 })
-      .limit(10)
-      .lean();
-
-    // 4. Recent Stock Entries
-    const recentStockEntries = await StockEntryModel.find({ shopId: shopObjectId })
-      .populate('productId', 'name sku')
-      .populate('createdBy', 'name')
-      .sort({ entryDate: -1 })
-      .limit(10)
-      .lean();
-
-    // 5. Low stock alerts
-    const lowStockProducts = await InventoryModel.find({
-      shopId: shopObjectId,
-      $expr: { $lte: ['$quantityOnHand', '$lowStockThreshold'] }
-    })
-      .populate('productId', 'name sku')
-      .sort({ quantityOnHand: 1 })
-      .limit(10)
-      .lean();
 
     return {
       shop: {

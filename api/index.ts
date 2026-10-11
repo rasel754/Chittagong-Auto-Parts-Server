@@ -21,19 +21,22 @@ async function ensureConnected() {
 }
 
 export default async function handler(req: any, res: any) {
+  const origin = req.headers?.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  // Immediately respond to CORS preflight without blocking on database connection
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
   try {
     await ensureConnected();
   } catch (error: any) {
     console.error('Database connection error in serverless handler:', error);
-    const origin = req.headers?.origin || '*';
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
-
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
 
     return res.status(503).json({
       success: false,

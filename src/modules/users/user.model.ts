@@ -27,7 +27,8 @@ const userSchema = new Schema<IUserDocument>(
       type: String,
       enum: Object.values(UserRole),
       default: UserRole.STAFF,
-      required: true
+      required: true,
+      index: true
     },
     permittedShopIds: [
       {
