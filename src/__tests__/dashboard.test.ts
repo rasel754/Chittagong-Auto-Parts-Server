@@ -152,4 +152,50 @@ describe('Dashboard Aggregations & Reporting Tests', () => {
     expect(res.body.data.metrics.salesRevenue).toBe(7500);
     expect(res.body.data.metrics.grossProfit).toBe(2500);
   });
+
+  it('should correctly filter dashboard by today, this_month, and custom date range', async () => {
+    // 1. Period: today
+    const todayRes = await request(app)
+      .get('/api/v1/dashboard/overview?period=today')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(todayRes.status).toBe(200);
+    expect(todayRes.body.success).toBe(true);
+    expect(todayRes.body.data.metrics.totalSalesRevenue).toBe(10700);
+    expect(Array.isArray(todayRes.body.data.salesTrend)).toBe(true);
+    expect(todayRes.body.data.salesTrend.length).toBeGreaterThanOrEqual(1);
+
+    // 2. Period: this_month
+    const monthRes = await request(app)
+      .get('/api/v1/dashboard/overview?period=this_month')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(monthRes.status).toBe(200);
+    expect(monthRes.body.success).toBe(true);
+    expect(monthRes.body.data.metrics.totalSalesRevenue).toBe(10700);
+
+    // 3. Period: custom range that includes today
+    const now = new Date();
+    const startStr = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).toISOString();
+    const endStr = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
+
+    const customRes = await request(app)
+      .get(`/api/v1/dashboard/overview?period=custom&startDate=${startStr}&endDate=${endStr}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(customRes.status).toBe(200);
+    expect(customRes.body.success).toBe(true);
+    expect(customRes.body.data.metrics.totalSalesRevenue).toBe(10700);
+    expect(customRes.body.data.recentSales.length).toBeGreaterThanOrEqual(2);
+
+    // 4. Period: custom range in past with no sales
+    const pastRes = await request(app)
+      .get('/api/v1/dashboard/overview?period=custom&startDate=2020-01-01T00:00:00.000Z&endDate=2020-01-31T23:59:59.999Z')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(pastRes.status).toBe(200);
+    expect(pastRes.body.success).toBe(true);
+    expect(pastRes.body.data.metrics.totalSalesRevenue).toBe(0);
+    expect(pastRes.body.data.recentSales.length).toBe(0);
+  });
 });

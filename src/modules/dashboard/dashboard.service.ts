@@ -45,6 +45,7 @@ export interface GlobalDashboardOverview {
   recentSales: unknown[];
   recentStockEntries: unknown[];
   lowStockAlerts: unknown[];
+  salesTrend?: Array<{ date: string; salesAmount: number; unitsSold: number }>;
 }
 
 export interface SingleShopDashboard {
@@ -70,6 +71,7 @@ export interface SingleShopDashboard {
   recentSales: unknown[];
   recentStockEntries: unknown[];
   lowStockProducts: unknown[];
+  salesTrend?: Array<{ date: string; salesAmount: number; unitsSold: number }>;
 }
 
 export class DashboardService {
@@ -105,7 +107,7 @@ export class DashboardService {
     query: DashboardFilterQuery
   ): Promise<GlobalDashboardOverview> {
     const shopObjectIds = await this.getAuthorizedShopIds(user, query.shopId);
-    const dateRange = DateUtil.parseReportingPeriod(query.period || '30d', query.startDate, query.endDate);
+    const dateRange = DateUtil.parseReportingPeriod(query.period, query.startDate, query.endDate);
 
     // 1. Inventory Aggregations: Total distinct products, total units, total inventory value
     const inventoryPipeline: PipelineStage[] = [
@@ -145,7 +147,30 @@ export class DashboardService {
       }
     ];
 
-    // 3. Run all top-level queries, aggregations, and recent records concurrently in parallel
+    // 3. Stock Entries Aggregations & Query within period
+    const stockMatch: Record<string, unknown> = {
+      shopId: { $in: shopObjectIds }
+    };
+    if (dateRange) {
+      stockMatch.entryDate = {
+        $gte: dateRange.startDate,
+        $lte: dateRange.endDate
+      };
+    }
+
+    const salesTrendPipeline: PipelineStage[] = [
+      { $match: salesMatch },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate', timezone: '+06:00' } },
+          salesAmount: { $sum: '$totalSellingPrice' },
+          unitsSold: { $sum: '$quantitySold' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ];
+
+    // 4. Run all top-level queries, aggregations, and recent records concurrently in parallel
     const [
       invResults,
       salesResults,
@@ -154,7 +179,8 @@ export class DashboardService {
       shopSalesStats,
       recentSales,
       recentStockEntries,
-      lowStockAlerts
+      lowStockAlerts,
+      salesTrendResults
     ] = await Promise.all([
       InventoryModel.aggregate(inventoryPipeline),
       SaleModel.aggregate(salesPipeline),
@@ -183,14 +209,14 @@ export class DashboardService {
           }
         }
       ]),
-      SaleModel.find({ shopId: { $in: shopObjectIds } })
+      SaleModel.find(salesMatch)
         .populate('productId', 'name sku')
         .populate('shopId', 'name code')
         .populate('createdBy', 'name')
         .sort({ saleDate: -1 })
         .limit(10)
         .lean(),
-      StockEntryModel.find({ shopId: { $in: shopObjectIds } })
+      StockEntryModel.find(stockMatch)
         .populate('productId', 'name sku')
         .populate('shopId', 'name code')
         .populate('createdBy', 'name')
@@ -205,7 +231,8 @@ export class DashboardService {
         .populate('shopId', 'name code')
         .sort({ quantityOnHand: 1 })
         .limit(10)
-        .lean()
+        .lean(),
+      SaleModel.aggregate(salesTrendPipeline)
     ]);
 
     const invData = invResults[0] || {
@@ -252,6 +279,12 @@ export class DashboardService {
       };
     });
 
+    const salesTrend = salesTrendResults.map((item: any) => ({
+      date: item._id,
+      salesAmount: MoneyUtil.round(item.salesAmount),
+      unitsSold: item.unitsSold
+    }));
+
     return {
       reportingPeriod: {
         period: query.period || (dateRange ? 'custom' : 'all_time'),
@@ -269,7 +302,8 @@ export class DashboardService {
       shopBreakdown,
       recentSales,
       recentStockEntries,
-      lowStockAlerts
+      lowStockAlerts,
+      salesTrend
     };
   }
 
@@ -283,7 +317,7 @@ export class DashboardService {
       throw new Error(`Shop with ID '${shopId}' not found`);
     }
 
-    const dateRange = DateUtil.parseReportingPeriod(query.period || '30d', query.startDate, query.endDate);
+    const dateRange = DateUtil.parseReportingPeriod(query.period, query.startDate, query.endDate);
 
     const salesMatch: Record<string, unknown> = { shopId: shopObjectId };
     if (dateRange) {
@@ -293,13 +327,34 @@ export class DashboardService {
       };
     }
 
+    const stockMatch: Record<string, unknown> = { shopId: shopObjectId };
+    if (dateRange) {
+      stockMatch.entryDate = {
+        $gte: dateRange.startDate,
+        $lte: dateRange.endDate
+      };
+    }
+
+    const salesTrendPipeline: PipelineStage[] = [
+      { $match: salesMatch },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate', timezone: '+06:00' } },
+          salesAmount: { $sum: '$totalSellingPrice' },
+          unitsSold: { $sum: '$quantitySold' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ];
+
     // Run all shop-specific metrics and lists in parallel
     const [
       [invData],
       [salesData],
       recentSales,
       recentStockEntries,
-      lowStockProducts
+      lowStockProducts,
+      salesTrendResults
     ] = await Promise.all([
       InventoryModel.aggregate([
         { $match: { shopId: shopObjectId } },
@@ -325,13 +380,13 @@ export class DashboardService {
           }
         }
       ]),
-      SaleModel.find({ shopId: shopObjectId })
+      SaleModel.find(salesMatch)
         .populate('productId', 'name sku')
         .populate('createdBy', 'name')
         .sort({ saleDate: -1 })
         .limit(10)
         .lean(),
-      StockEntryModel.find({ shopId: shopObjectId })
+      StockEntryModel.find(stockMatch)
         .populate('productId', 'name sku')
         .populate('createdBy', 'name')
         .sort({ entryDate: -1 })
@@ -344,8 +399,15 @@ export class DashboardService {
         .populate('productId', 'name sku')
         .sort({ quantityOnHand: 1 })
         .limit(10)
-        .lean()
+        .lean(),
+      SaleModel.aggregate(salesTrendPipeline)
     ]);
+
+    const salesTrend = salesTrendResults.map((item: any) => ({
+      date: item._id,
+      salesAmount: MoneyUtil.round(item.salesAmount),
+      unitsSold: item.unitsSold
+    }));
 
     return {
       shop: {
@@ -369,7 +431,8 @@ export class DashboardService {
       },
       recentSales,
       recentStockEntries,
-      lowStockProducts
+      lowStockProducts,
+      salesTrend
     };
   }
 }

@@ -15,9 +15,9 @@ export class DateUtil {
   ): DateRange | null {
     const now = new Date();
 
-    if (customStart && customEnd) {
-      const s = new Date(customStart);
-      const e = new Date(customEnd);
+    if (customStart || customEnd) {
+      const s = customStart ? new Date(customStart) : new Date(0);
+      const e = customEnd ? new Date(customEnd) : new Date();
       if (!isNaN(s.getTime()) && !isNaN(e.getTime())) {
         return {
           startDate: s,
@@ -26,48 +26,46 @@ export class DateUtil {
       }
     }
 
-    if (!period) {
+    if (!period || period.toLowerCase() === 'all_time' || period.toLowerCase() === 'custom') {
       return null;
     }
 
+    // Default timezone context: Asia/Dhaka (+06:00)
+    const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000;
+    const dhakaNow = new Date(now.getTime() + DHAKA_OFFSET_MS);
+    const y = dhakaNow.getUTCFullYear();
+    const m = dhakaNow.getUTCMonth();
+    const d = dhakaNow.getUTCDate();
+
     switch (period.toLowerCase()) {
       case 'today': {
-        const start = new Date(now);
-        start.setUTCHours(0, 0, 0, 0);
-        const end = new Date(now);
-        end.setUTCHours(23, 59, 59, 999);
+        const start = new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - DHAKA_OFFSET_MS);
+        const end = new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - DHAKA_OFFSET_MS);
         return { startDate: start, endDate: end };
       }
       case 'yesterday': {
-        const start = new Date(now);
-        start.setUTCDate(start.getUTCDate() - 1);
-        start.setUTCHours(0, 0, 0, 0);
-        const end = new Date(now);
-        end.setUTCDate(end.getUTCDate() - 1);
-        end.setUTCHours(23, 59, 59, 999);
+        const start = new Date(Date.UTC(y, m, d - 1, 0, 0, 0, 0) - DHAKA_OFFSET_MS);
+        const end = new Date(Date.UTC(y, m, d - 1, 23, 59, 59, 999) - DHAKA_OFFSET_MS);
         return { startDate: start, endDate: end };
       }
       case '7d':
       case 'last_7_days': {
-        const start = new Date(now);
-        start.setUTCDate(start.getUTCDate() - 6);
-        start.setUTCHours(0, 0, 0, 0);
+        const start = new Date(Date.UTC(y, m, d - 6, 0, 0, 0, 0) - DHAKA_OFFSET_MS);
         return { startDate: start, endDate: now };
       }
       case '30d':
       case 'last_30_days': {
-        const start = new Date(now);
-        start.setUTCDate(start.getUTCDate() - 29);
-        start.setUTCHours(0, 0, 0, 0);
+        const start = new Date(Date.UTC(y, m, d - 29, 0, 0, 0, 0) - DHAKA_OFFSET_MS);
         return { startDate: start, endDate: now };
       }
       case 'this_month': {
-        const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-        return { startDate: start, endDate: now };
+        const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0) - DHAKA_OFFSET_MS);
+        const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999) - DHAKA_OFFSET_MS);
+        return { startDate: start, endDate: end };
       }
       case 'last_month': {
-        const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0, 0));
-        const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59, 999));
+        const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0) - DHAKA_OFFSET_MS);
+        const end = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999) - DHAKA_OFFSET_MS);
         return { startDate: start, endDate: end };
       }
       default:
