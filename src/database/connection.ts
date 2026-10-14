@@ -26,8 +26,8 @@ export async function connectDatabase(): Promise<typeof mongoose> {
     const isServerless = !!process.env.VERCEL || env.NODE_ENV === 'production';
     const opts: mongoose.ConnectOptions = {
       autoIndex: !isServerless,
-      serverSelectionTimeoutMS: 8000,
-      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 30000,
       maxPoolSize: 10,
       minPoolSize: 0,
       bufferCommands: false,

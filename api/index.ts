@@ -33,6 +33,20 @@ export default async function handler(req: any, res: any) {
     return res.status(204).end();
   }
 
+  // Fast-track ping and health endpoints without blocking on DB connection
+  const urlPath = (req.url || '').split('?')[0];
+  if (urlPath === '/' || urlPath === '/health' || urlPath === '/api/v1/auth/ping') {
+    return new Promise<void>((resolve, reject) => {
+      res.on('finish', () => resolve());
+      res.on('close', () => resolve());
+      res.on('error', (err: any) => reject(err));
+      app(req, res, (err: any) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+  }
+
   try {
     await ensureConnected();
   } catch (error: any) {
